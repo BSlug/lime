@@ -65,6 +65,9 @@ class HTML5Window
 	private var currentTouches = new Map<Int, Touch>();
 	private var isFullscreen:Bool;
 	private var parent:Window;
+	private var mouseLockRequest:Bool;
+	private var mouseLocked:Bool;
+	private var nextMouseLockRequest:Float = 0;
 	private var primaryTouch:Touch;
 	private var renderType:RenderContextType;
 	private var requestedFullscreen:Bool;
@@ -238,6 +241,8 @@ class HTML5Window
 			canvas.addEventListener("webglcontextlost", handleContextEvent, false);
 			canvas.addEventListener("webglcontextrestored", handleContextEvent, false);
 		}
+		
+		Browser.document.addEventListener("pointerlockchange", mouseLockChange);
 	}
 
 	public function alert(message:String, title:String):Void
@@ -429,7 +434,7 @@ class HTML5Window
 
 	public function getMouseLock():Bool
 	{
-		return false;
+		return mouseLocked;
 	}
 
 	public function getOpacity():Float
@@ -708,17 +713,27 @@ class HTML5Window
 					}
 
 				case "mousemove":
-					if (x != cacheMouseX || y != cacheMouseY)
+					if (mouseLocked)
 					{
-						parent.onMouseMove.dispatch(x, y);
-						parent.onMouseMoveRelative.dispatch(x - cacheMouseX, y - cacheMouseY);
-
+						parent.onMouseMoveRelative.dispatch(event.movementX, event.movementY);
 						if ((parent.onMouseMove.canceled || parent.onMouseMoveRelative.canceled) && event.cancelable)
 						{
 							event.preventDefault();
 						}
 					}
+					else
+					{
+						if (x != cacheMouseX || y != cacheMouseY)
+						{
+							parent.onMouseMove.dispatch(x, y);
+							parent.onMouseMoveRelative.dispatch(x - cacheMouseX, y - cacheMouseY);
 
+							if ((parent.onMouseMove.canceled || parent.onMouseMoveRelative.canceled) && event.cancelable)
+							{
+								event.preventDefault();
+							}
+						}
+					}
 				default:
 			}
 
@@ -928,7 +943,22 @@ class HTML5Window
 
 		return false;
 	}
-
+	
+	private function mouseLockChange():Void
+	{
+		if (Browser.document.pointerLockElement == canvas)
+		{
+			canvas.removeEventListener("click", requestMouseLock);
+			mouseLockRequest = false;
+			mouseLocked = true;
+		}
+		else if (mouseLocked == true)
+		{
+			mouseLocked = false;
+			nextMouseLockRequest = Date.now().getTime() + 1500;
+		}
+	}
+	
 	public function move(x:Int, y:Int):Void {}
 
 	public function readPixels(rect:Rectangle):Image
@@ -963,7 +993,12 @@ class HTML5Window
 
 		return null;
 	}
-
+	
+	public function requestMouseLock():Void
+	{
+		canvas.requestPointerLock();
+	}
+	
 	public function resize(width:Int, height:Int):Void {}
 
 	public function setMinSize(width:Int, height:Int):Void {}
@@ -1153,7 +1188,31 @@ class HTML5Window
 		return false;
 	}
 
-	public function setMouseLock(value:Bool):Void {}
+	public function setMouseLock(value:Bool):Void
+	{
+		if (value)
+		{
+			if (!(mouseLocked || mouseLockRequest))
+				if (currentTime = Date.now().getTime() > nextMouseLockRequest)
+				{
+					canvas.addEventListener("click", requestMouseLock);
+					mouseLockRequest = true;
+				}
+		}
+		else
+		{
+			if (mouseLocked)
+			{
+				mouseLocked = false;
+				Browser.document.exitPointerLock();
+			}
+			else if (mouseLockRequest)
+			{
+				canvas.removeEventListener("click", requestMouseLock);
+				mouseLockRequest = false;
+			}
+		}
+	}
 
 	public function setOpacity(value:Float):Void {}
 
